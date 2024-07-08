@@ -1,0 +1,349 @@
+<html>
+<head>
+  <title>Rendering primitives</title>
+  <!--<link rel="shortcut icon" type="image/png" href="../common/images/favicon.png" />-->
+
+  <!-- libraries -->
+  <!--<link rel="stylesheet" href="../common/lib/normalize.css">-->
+  <!--<script type="text/javascript" src="../common/lib/dat.gui.js"></script>-->
+
+  <!-- modules -->
+  <!--<script type="text/javascript" src="../common/js/utils.js"></script>-->
+
+  <!-- vertex shader -->
+
+  <link rel="stylesheet" href="./lib/normalize.css">
+  <script type="text/javascript" src="./lib/dat.gui.js"></script>
+  <script type="text/javascript" src="./js/utils.js"></script>
+  <script type="text/javascript" src="./forces.js"></script>
+  <script type="text/javascript" src="./lib/gl-matrix.js"></script>
+  <script type="text/javascript" src="./objects.js"></script>
+  <script type="text/javascript" src="./simpleGLStack.js"></script>
+  <script type="text/javascript" src="./geometry.js"></script>
+  <script type="text/javascript" src="./webGLApp.js"></script>
+  <script type="text/javascript" src="./webGLModel.js"></script>
+  <script type="text/javascript" src="./shapes.js"></script>
+  <script type="text/javascript" src="./shapesWebGL.js"></script>
+  
+
+  <script type="text/javascript">
+  
+    class MyWebGLMainAPP extends WebGLMainApp{
+    
+        constructor(){
+            super();
+            this.program = null;
+            this.fov = 60;
+            this.rotationVector = [0.0,0.0,0.0];
+            this.lightPos = [0.0,1.0,1.0];
+            this.translationVector = [0.0,0.0, 300.0];
+            this.stack = new SimpleGLStack();
+            this.seconds = 0;
+
+            this.previousTime = Date.now();
+
+        }
+
+        createTransformMatrices(){
+
+            this.modelMatrix = mat4.create();
+            this.viewMatrix = mat4.create();
+            this.modelViewMatrix = mat4.create();
+            this.projectionMatrix = mat4.create();
+            this.normalMatrix = mat4.create();
+
+            var tv = vec3.create();
+            vec3.set(tv, this.translationVector[0], this.translationVector[1], this.translationVector[2]);
+
+
+            // Set the view matrix based on camera controls
+            mat4.identity(this.viewMatrix);
+            mat4.translate(this.viewMatrix, this.viewMatrix, tv); // Apply translation
+            mat4.rotateX(this.viewMatrix, this.viewMatrix, this.rotationVector[0] * Math.PI / 180); // Apply rotation
+            mat4.rotateY(this.viewMatrix, this.viewMatrix, this.rotationVector[1] * Math.PI / 180); // Apply rotation
+            mat4.rotateZ(this.viewMatrix, this.viewMatrix, this.rotationVector[2] * Math.PI / 180); // Apply rotation
+
+            // Invert the view matrix to move the camera instead of the world
+            mat4.invert(this.viewMatrix, this.viewMatrix);
+
+            // Set the model matrix (identity for now, can be updated per object)
+            mat4.identity(this.modelMatrix);
+
+            // Combine view and model matrices into modelViewMatrix
+            mat4.multiply(this.modelViewMatrix, this.viewMatrix, this.modelMatrix);
+
+            // Calculate normal matrix
+            mat4.identity(this.normalMatrix);
+            mat4.invert(this.normalMatrix, this.modelViewMatrix);
+            mat4.transpose(this.normalMatrix, this.normalMatrix);
+
+            // Create the projection matrix
+            mat4.identity(this.projectionMatrix);  
+            mat4.perspective(this.projectionMatrix, this.fov * (Math.PI / 180), this.gl.canvas.width / this.gl.canvas.height, 0.1, 1000);
+
+        }
+
+        createModels(){
+            /*Textures obtained from 
+            https://www.myfreetextures.com/
+            https://publicdomaintextures.com/
+            https://www.solarsystemscope.com/textures/
+            */
+
+
+            this.sun = new Sun(this);
+            this.earth = new Earth(this);
+            this.GForce = new GravityForce(this);
+
+        }
+
+        async create(){
+        
+            // Carrega um program       
+            //this.program = this.createProgram("vertex-shader","fragment-shader");
+            this.program = await this.loadProgram("vertexShader.sh","fragmentShader.sh");
+            this.programLines = await this.loadProgram("vertexShaderLines.sh","fragmentShaderLines.sh");
+            this.programNoise = await this.loadProgram("vertexShaderNoise.sh","fragmentShader.sh");
+            
+            this.gl.useProgram(this.program);
+
+            //Define as variáveis attribute e uniform dos shaders
+            this.attribShaderVariables = {"aVertexPosition":"aVertexPosition",
+                                          "aVertexColor":"aVertexColor",
+                                          "aVertexNormal":"aVertexNormal",
+                                          "aVertexTextureCoord":"aTextureCoordinate"};
+
+            this.uniformShaderVariables = ["uVertexPointSize","uModelViewMatrix","uNormalMatrix","uProjectionMatrix",
+                                           "uLightPos","uEyePos","uTextureActive","uSampler"];
+
+            //Define as variáveis attribute e uniform dos shaders
+            this.attribShaderLinesVariables = {"aVertexPosition":"aVertexPosition",
+                                              "aVertexColor":"aVertexColor",
+                                              "aVertexTextureCoord":"aTextureCoordinate"};
+
+            this.uniformShaderLinesVariables = ["uVertexPointSize","uModelViewMatrix","uProjectionMatrix","uTextureActive","uSampler"];
+            
+
+            //Obtem a localização das variáveis no shader
+            this.setProgramAttribShaderVariablesLocation(this.program,this.attribShaderVariables);
+            this.setProgramUniformShaderVariablesLocation(this.program,this.uniformShaderVariables);
+
+            this.setProgramAttribShaderVariablesLocation(this.programNoise,this.attribShaderVariables);
+            this.setProgramUniformShaderVariablesLocation(this.programNoise,this.uniformShaderVariables);
+
+
+            this.setProgramAttribShaderVariablesLocation(this.programLines,this.attribShaderLinesVariables);
+            this.setProgramUniformShaderVariablesLocation(this.programLines,this.uniformShaderLinesVariables);
+
+            this.createTransformMatrices();
+            
+            this.createModels();
+
+            var uniformShaderVariablesValues = {"uVertexPointSize":["1f",16.0],
+                                                "uModelViewMatrix":["mat4",false,this.modelViewMatrix],
+                                                "uNormalMatrix":["mat4",false,this.normalMatrix],
+                                                "uProjectionMatrix":["mat4",false,this.projectionMatrix],
+                                                "uLightPos":["3f",this.lightPos[0],this.lightPos[1],this.lightPos[2]],
+                                                "uEyePos":["3f",this.translationVector[0],this.translationVector[1],this.translationVector[2]],
+                                                "uTextureActive":["1i",1],
+                                                "uSampler":["1i",0]};
+            
+            var uniformShaderLinesVariablesValues = {"uVertexPointSize":["1f",16.0],
+                                                "uModelViewMatrix":["mat4",false,this.modelViewMatrix],
+                                                "uProjectionMatrix":["mat4",false,this.projectionMatrix],
+                                                "uTextureActive":["1i",0],
+                                                "uSampler":["1i",0]};
+
+            this.setProgramUniformShaderVariablesValues(this.program,uniformShaderVariablesValues);
+            this.setProgramUniformShaderVariablesValues(this.programNoise,uniformShaderVariablesValues);
+            this.setProgramUniformShaderVariablesValues(this.programLines,uniformShaderLinesVariablesValues);
+        }
+
+
+        drawScene(modelViewMatrix){
+            var tv = vec3.create();
+
+            var elapsedTime = Date.now() - this.previousTime;
+
+            this.seconds = elapsedTime / 1000;
+            this.GForce.apply(this.earth, this.sun);
+
+            // draw sun
+            this.stack.push(mat4.clone(modelViewMatrix));
+            this.sun.updatePosition(this.seconds);
+            mat4.translate(modelViewMatrix,modelViewMatrix, this.sun.scaledPosition);
+            this.updateModelViewMatrix(this.sun.program,modelViewMatrix,"uModelViewMatrix");
+            this.sun.draw(modelViewMatrix);
+            modelViewMatrix = this.stack.pop();
+
+            // draw earth
+            this.stack.push(mat4.clone(modelViewMatrix));
+            this.earth.updatePosition(this.seconds);
+            mat4.translate(modelViewMatrix,modelViewMatrix, this.earth.scaledPosition);
+            this.updateModelViewMatrix(this.earth.program, modelViewMatrix,"uModelViewMatrix");
+            this.earth.draw(modelViewMatrix);
+            modelViewMatrix = this.stack.pop();
+
+            console.log(this.earth.scaledPosition);
+            
+
+        }
+
+
+        draw() {
+           
+          this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+          // Update the view matrix based on camera controls
+          var tv = vec3.create();
+          vec3.set(tv, this.translationVector[0], this.translationVector[1], this.translationVector[2]);
+
+          mat4.identity(this.viewMatrix);
+          mat4.translate(this.viewMatrix, this.viewMatrix, tv); // Apply translation
+          mat4.rotateX(this.viewMatrix, this.viewMatrix, this.rotationVector[0] * Math.PI / 180); // Apply rotation
+          mat4.rotateY(this.viewMatrix, this.viewMatrix, this.rotationVector[1] * Math.PI / 180); // Apply rotation
+          mat4.rotateZ(this.viewMatrix, this.viewMatrix, this.rotationVector[2] * Math.PI / 180); // Apply rotation
+
+          // Invert the view matrix to move the camera instead of the world
+          mat4.invert(this.viewMatrix, this.viewMatrix);
+
+          // Set the model matrix (identity for now, can be updated per object)
+          mat4.identity(this.modelMatrix);
+
+          // Combine view and model matrices into modelViewMatrix
+          mat4.multiply(this.modelViewMatrix, this.viewMatrix, this.modelMatrix);
+
+          // Update shader uniforms with the modelViewMatrix and projectionMatrix
+          this.updateModelViewMatrix(this.program, this.modelViewMatrix, "uModelViewMatrix");   
+          this.updateModelViewMatrix(this.programLines, this.modelViewMatrix, "uModelViewMatrix");
+
+          // Update normal matrix
+          mat4.identity(this.normalMatrix);
+          mat4.invert(this.normalMatrix, this.modelViewMatrix);
+          mat4.transpose(this.normalMatrix, this.normalMatrix);
+
+          this.updateNormalMatrix(this.program, this.normalMatrix, "uNormalMatrix");            
+          this.updateNormalMatrix(this.programLines, this.normalMatrix, "uNormalMatrix");            
+
+          // Update projection matrix
+          mat4.identity(this.projectionMatrix);  
+          mat4.perspective(this.projectionMatrix, this.fov * (Math.PI / 180), this.gl.canvas.width / this.gl.canvas.height, 0.1, 1000);
+
+          this.updateProjectionMatrix(this.program, this.projectionMatrix, "uProjectionMatrix");
+          this.updateProjectionMatrix(this.programLines, this.projectionMatrix, "uProjectionMatrix");
+          this.updateProjectionMatrix(this.programNoise, this.projectionMatrix, "uProjectionMatrix");
+
+          // Render the scene
+          this.drawScene(this.modelViewMatrix);
+
+        } 
+
+        initControls(){
+        
+            var obj = this;
+
+            //var axis = ["x","y","z"];
+
+            // A wrapper around dat.GUI interface for a simpler API
+            // for the purpose of this book
+            utils.configureControls({
+                
+                /*
+                'Rendering Mode': {
+                value: renderingMode,
+                options: [
+                    'TRIANGLES',
+                    'LINES',
+                    'POINTS',
+                    'LINE_LOOP',
+                    'LINE_STRIP',
+                    'TRIANGLE_STRIP',
+                    'TRIANGLE_FAN'
+                ],
+                onChange: v => {renderingMode = v;render();}
+                },*/
+
+                
+                // reduce receives a function and the initial value (below the initial value is {})
+                // result is the initial value or the return of the previous call to the function
+                // Spread all values from the reduce onto the controls
+                ...['Translate X', 'Translate Y', 'Translate Z'].reduce((result, name, i) => {
+                result[name] = {
+                    value: obj.translationVector[i],
+                    min: -100, 
+                    max: 300, 
+                    step: 0.000001,
+                    onChange(v, state){
+                    obj.translationVector[i] = v;
+                    obj.draw(); 
+                    }
+                };
+                return result;
+                }, {}),
+
+
+                ...['Rotate X', 'Rotate Y', 'Rotate Z'].reduce((result, name, i) => {
+                result[name] = {
+                    value: obj.rotationVector[i],
+                    min: -180, max: 180, step: 0.000001,
+                    onChange(v, state) {
+                    obj.rotationVector = [
+                        state['Rotate X'],
+                        state['Rotate Y'],
+                        state['Rotate Z']
+                    ];
+                    obj.draw();  
+
+                    }
+                };
+                return result;
+                }, {}),
+
+                
+                'fov':{
+                value: obj.fov,
+                min : 0.0,
+                max : 120,
+                step: 0.001,
+                onChange(v,state){
+                    obj.fov = v;
+                    obj.draw();
+                }
+            }
+        })
+    }
+
+
+
+        init() {
+            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            super.init();
+        }
+   
+  }
+
+  </script>
+</head>
+
+<body>
+
+  <canvas id="webgl-canvas" width="1000" height="800"></canvas>
+  <script>
+    const canvas = document.getElementById("webgl-canvas");
+    const screenWidth = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+    const screenHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
+    canvas.width = screenWidth;
+    canvas.height = screenHeight;
+  </script>
+    Your browser does not support the HTML5 canvas element.
+  </canvas>
+
+  <script type="text/javascript">
+      let myWebGLMainAPP = new MyWebGLMainAPP();
+      window.onload = myWebGLMainAPP.init();
+  </script>
+
+</body>
+
+</html>
