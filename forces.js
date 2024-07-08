@@ -11,22 +11,21 @@ class GravityForce extends Force {
         super();
     }
 
-    apply(object1, object2) {
-
-        let r = vec3.create();
-        vec3.sub(r, object2.position, object1.position);
-        let rLength = vec3.length(r);
-        let rNorm = vec3.create();
-        vec3.normalize(rNorm, r);
-
-        let force = vec3.create();
-        let forceMagnitude = this.G * object1.mass * object2.mass / Math.pow(rLength, 2);
-
-        vec3.scale(force, rNorm, forceMagnitude);
-
-        vec3.scaleAndAdd(object1.acceleration, object1.acceleration, force, 1 / object1.mass);
-        vec3.scaleAndAdd(object2.acceleration, object2.acceleration, force, -1 / object2.mass);
-
-
-        }
+    apply(body1, body2) {
+        let dx = body2.position[0] - body1.position[0];
+        let dy = body2.position[1] - body1.position[1];
+        let dz = body2.position[2] - body1.position[2];
+        let distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        let force = this.G * body1.mass * body2.mass / (distance * distance);
+        let ax = force * dx / (body1.mass * distance);
+        let ay = force * dy / (body1.mass * distance);
+        let az = force * dz / (body1.mass * distance);
+        body1.acceleration[0] += ax;
+        body1.acceleration[1] += ay;
+        body1.acceleration[2] += az;
+        body2.acceleration[0] -= ax;
+        body2.acceleration[1] -= ay;
+        body2.acceleration[2] -= az;
+      }
+    
 }
