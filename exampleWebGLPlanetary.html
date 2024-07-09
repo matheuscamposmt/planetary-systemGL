@@ -38,9 +38,10 @@
             this.lightPos = [0.0,1.0,1.0];
             this.translationVector = [0.0,0.0, 300.0];
             this.stack = new SimpleGLStack();
-            this.seconds = 0;
+            this.dt = 0;
 
-            this.previousTime = Date.now();
+            this.previousTime = Date.now()
+            this.mass_pct = 1;
 
         }
 
@@ -85,14 +86,26 @@
 
         createModels(){
             /*Textures obtained from 
-            https://www.myfreetextures.com/
-            https://publicdomaintextures.com/
             https://www.solarsystemscope.com/textures/
             */
 
 
             this.sun = new Sun(this);
             this.earth = new Earth(this);
+            this.moon = new Moon(this, this.earth);
+            this.mars = new Mars(this);
+            this.mercury = new Mercury(this);
+            this.venus = new Venus(this);
+            this.jupiter = new Jupiter(this);
+            this.saturn = new Saturn(this);
+            this.uranus = new Uranus(this);
+            this.neptune = new Neptune(this);
+
+
+            this.objects = [this.sun, this.earth, this.moon, this.mars, 
+                        this.mercury, this.venus, this.jupiter, 
+                        this.saturn, this.uranus, this.neptune];
+
             this.GForce = new GravityForce(this);
 
         }
@@ -160,32 +173,44 @@
         }
 
 
-        drawScene(modelViewMatrix){
-            var tv = vec3.create();
+        updateSimulation(objects, timeFactor) {
+            let time_now = Date.now();
+            let elapsedTime = time_now - this.previousTime;
+            this.previousTime = time_now
 
-            var elapsedTime = Date.now() - this.previousTime;
+            this.dt = elapsedTime / 1000;
+            this.dt = this.dt * timeFactor;
+            console.log(this.dt);
 
-            this.seconds = elapsedTime / 1000;
-            this.GForce.apply(this.earth, this.sun);
+            objects.forEach(obj => {
+                vec3.set(obj.acceleration, 0, 0, 0);
+            });
 
-            // draw sun
-            this.stack.push(mat4.clone(modelViewMatrix));
-            this.sun.updatePosition(this.seconds);
-            mat4.translate(modelViewMatrix,modelViewMatrix, this.sun.scaledPosition);
-            this.updateModelViewMatrix(this.sun.program,modelViewMatrix,"uModelViewMatrix");
-            this.sun.draw(modelViewMatrix);
-            modelViewMatrix = this.stack.pop();
+            // Apply forces to calculate accelerations
+            applyForces(objects, this.GForce);
 
-            // draw earth
-            this.stack.push(mat4.clone(modelViewMatrix));
-            this.earth.updatePosition(this.seconds);
-            mat4.translate(modelViewMatrix,modelViewMatrix, this.earth.scaledPosition);
-            this.updateModelViewMatrix(this.earth.program, modelViewMatrix,"uModelViewMatrix");
-            this.earth.draw(modelViewMatrix);
-            modelViewMatrix = this.stack.pop();
+            // Update positions based on the new accelerations
+            objects.forEach(obj => {
+                obj.updatePosition(this.dt);
+            });
 
-            console.log(this.earth.scaledPosition);
             
+        }
+
+        drawObjects(objects, modelViewMatrix) {
+            objects.forEach(obj => {
+                this.stack.push(mat4.clone(modelViewMatrix));
+                mat4.translate(modelViewMatrix,modelViewMatrix, obj.scaledPosition);
+                this.updateModelViewMatrix(this.sun.program,modelViewMatrix,"uModelViewMatrix");
+                obj.draw(modelViewMatrix);
+                modelViewMatrix = this.stack.pop();
+            });
+        }
+
+
+        drawScene(modelViewMatrix){
+            this.updateSimulation(this.objects, 10e5);
+            this.drawObjects(this.objects, modelViewMatrix);
 
         }
 
@@ -271,7 +296,7 @@
                 result[name] = {
                     value: obj.translationVector[i],
                     min: -100, 
-                    max: 300, 
+                    max: 1200, 
                     step: 0.000001,
                     onChange(v, state){
                     obj.translationVector[i] = v;
@@ -299,6 +324,30 @@
                 return result;
                 }, {}),
 
+                'Sun mass pct':{
+                    value: obj.mass_pct,
+                    min : 0.0,
+                    max : 1.5,
+                    step: 0.001,
+                    onChange(v,state){
+                        obj.mass_pct = v;
+                        obj.sun.mass = obj.sun.mass * obj.mass_pct;
+                        obj.draw();
+                    }
+                },
+
+                'Earth mass pct':{
+                    value: obj.mass_pct,
+                    min : 0.0,
+                    max : 1.5,
+                    step: 0.001,
+                    onChange(v,state){
+                        obj.mass_pct = v;
+                        obj.earth.mass = obj.earth.mass * obj.mass_pct;
+                        obj.draw();
+                    }
+                },
+
                 
                 'fov':{
                 value: obj.fov,
@@ -310,6 +359,8 @@
                     obj.draw();
                 }
             }
+
+
         })
     }
 

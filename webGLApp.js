@@ -325,7 +325,7 @@ class WebGLMainApp{
     render() {
         
         var now;
-             elapsed_time;
+        var elapsed_time;
         if (this.animate_active){
         
             now = Date.now();
